@@ -1,10 +1,10 @@
 # Arduino environment monitor
 Arduino based themperature monitor with sms notifications.
 ## Hardware
-- Arduino Leonardo
-- SIM 900A GSM module
-- 4 x Dallas OneWire thermal Sensors
-- DS3232 RTC clock
+- Arduino Leonardo ![Arduino image] (https://www.arduino.cc/en/uploads/Main/LeonardoNoHeadersFront_2_450px.jpg)
+- SIM 900A GSM module ![SIM 900A GSM image ](/images/SIM900A.jpg)
+- 4 x Dallas OneWire thermal Sensors ![Dallas image](/images/SV003332-G.jpg)
+- DS3232 RTC clock	![DS3232 image](/images/DS3231.jpg)
 
 ## Logic
 Sketch periodicaly checking for themperature, if current measurings exeeds defined thesholds sms notification is composed and sended to speceifed arrays of phone numbers. 
