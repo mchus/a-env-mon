@@ -1,3 +1,6 @@
 [submodule "libraries/DS3232RTC"]
 	path = libraries/DS3232RTC
 	url = https://github.com/JChristensen/DS3232RTC.git
+[submodule "libraries/Time"]
+	path = libraries/Time
+	url = https://github.com/PaulStoffregen/Time.git
