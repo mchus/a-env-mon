@@ -6,12 +6,13 @@
 #include <SoftwareSerial.h>
 #include <math.h>
 
-SoftwareSerial SIM900 (10, 11); // RX, TX
+SoftwareSerial SIM900 (10, 11); //SIM900 is connected to 10 & 11 PINs RX, TX 
+#define ONE_WIRE_BUS 13         //Dallas OneWire sensors is connected to 13 PIN
 
 String phone_number[] = {"+79000000000"}; // Phone number for SMS notification
-int HighAlarmTemp[] = {28, 28, 28, 28};
-int DestroyAlarmTemp[] = {60, 60, 60, 60};
-int LowAlarmTemp[] = { -28, -28, -28, -28};
+int HighAlarmTemp[] = {28, 28, 28, 28};     // Highest temperature when user is notificated
+int DestroyAlarmTemp[] = {60, 60, 60, 60};  // Temperature used to make forecast
+int LowAlarmTemp[] = { -28, -28, -28, -28}; // Lowest thmperature when user is notificated
 
 String textForSMS;
 String last_alarm_time;
@@ -19,9 +20,9 @@ String last_alarm_time;
 int last_call_hour;
 int last_message_hour;
 
-int monPeriod1 = 300; // 5 минут
-int monPeriod2 = 600; // 10 минут
-int monPeriod3 = 1800;// 60 минут
+int monPeriod1 = 300; // 5 minutes
+int monPeriod2 = 600; // 10 minutes
+int monPeriod3 = 1800;// 60 minutes
 
 
 long count_t1, count_t2, count_t3;
@@ -32,14 +33,11 @@ float tt1mLast[4], tt2mLast[4], tt3mLast[4];
 float tt1mTrend[4], tt2mTrend[4], tt3mTrend[4];
 int tt1m_avg[4], tt2m_avg[4], tt3m_avg[4];
 
-
 boolean call_done;
 boolean message_done;
 boolean armed;
 tmElements_t tm;
 
-
-#define ONE_WIRE_BUS 13
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -49,20 +47,22 @@ DeviceAddress thermalSensor[2];
 
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(9600);   //Serial debug console initialize at 9k
   Wire.begin();
-  SIM900.begin(57600);
+  
+  SIM900.begin(57600);  //SIM900 console initialize at 56k
   sensors.begin();
 
   startOfPeriod1 = now();
   startOfPeriod2 = now();
   startOfPeriod3 = now();
+  
   call_done = false;
   armed = true;
 
-
+  // SIM900 serial console initialize and hanging off call (just for shure);
   delay(1000);
-  SIM900.println("AT");
+  SIM900.println("AT"); //Sending "AT" to modem for auto baud rate sensing;
   delay(1000);
   SIM900.println("ATH");
   delay(1000);
@@ -74,7 +74,7 @@ void setup()
     Serial.println("RTC has set the system time");
 
 
-  // locate devices on the bus
+  // locate termal sensors on the bus
   Serial.print("Found ");
   Serial.print(sensors.getDeviceCount(), DEC);
   Serial.println(" devices.");
@@ -89,15 +89,15 @@ void setup()
 
     Serial.print("Sensor #"); Serial.print(i);
     Serial.print(": "); Serial.println(getAddress(thermalSensor[i]));
-    sensors.setHighAlarmTemp (thermalSensor[i], HighAlarmTemp[i]);     // alarm when temp is higher than
-    sensors.setLowAlarmTemp(thermalSensor[i], LowAlarmTemp[i]);    // alarm when temp is lower than
-    Serial.print("Alarms:");  Serial.println(getAlarms(thermalSensor[i]));
+    sensors.setHighAlarmTemp (thermalSensor[i], HighAlarmTemp[i]);          // alarm when temp is higher than HighAlarmTemp[i]
+    sensors.setLowAlarmTemp(thermalSensor[i], LowAlarmTemp[i]);             // alarm when temp is lower than LowAlarmTemp[i]
+    Serial.print("Alarms:");  Serial.println(getAlarms(thermalSensor[i]));  
     tt1m[i] = sensors.getTempC(thermalSensor[i]);
   }
 }
 
 
-// function to print a thermo-device address
+// get a termal-sensors device address
 String getAddress(DeviceAddress deviceAddress)
 {
   String datastring;
@@ -109,7 +109,7 @@ String getAddress(DeviceAddress deviceAddress)
   return datastring;
 }
 
-
+// get a assigned alarms on devices
 String getAlarms(uint8_t deviceAddress[])
 {
 
@@ -120,6 +120,7 @@ String getAlarms(uint8_t deviceAddress[])
   return datastring;
 }
 
+// get time in short format
 String getShortTimeString ()
 {
   String shtime;
@@ -131,6 +132,7 @@ String getShortTimeString ()
   return shtime;
 }
 
+// update statistical information
 void updateStats(boolean debug)
 {
 
@@ -196,9 +198,8 @@ void updateStats(boolean debug)
   }
   }
 }
-// main function to print information about a device
 
-
+// get information about a device
 String getData(DeviceAddress deviceAddress)
 {
   String datastring;
@@ -209,6 +210,7 @@ String getData(DeviceAddress deviceAddress)
   return datastring;
 }
 
+// compose alarm message for SMS sending
 String makeMessage(int deviceid)
 {
   int timeToDeath =  makeForecast(deviceid);    
@@ -229,7 +231,7 @@ String makeMessage(int deviceid)
 
 }
 
-
+// check for active alarms on device
 boolean checkAlarm(int deviceid)
 {
 
@@ -285,8 +287,8 @@ boolean checkAlarm(int deviceid)
 }
 
 
-// phone
-int makeForecast(int deviceid) // расчет в секундах времени до достижения точки разрушения на основе тренда
+// forecast in seconds elasped time to DestroyAlarmTemp[]
+int makeForecast(int deviceid) 
 {
   float forecastSeconds ;
   float delta_temp;
@@ -311,6 +313,7 @@ int makeForecast(int deviceid) // расчет в секундах времен�
   return int(round(forecastSeconds));  
 }
 
+// proceed a call just for make a loud sound in the middle of the "do not distrub" mode on smartphone
 boolean makecall(String number)
 {
   SIM900.print("ATD");
@@ -325,29 +328,27 @@ boolean makecall(String number)
   return true;
 }
 
+// proceed a sending message to number
 boolean sendSMS(String number, String message)
-//boolean sendSMS()
 {
-  SIM900.print("AT+CMGF=1\r");                                                        // AT command to send SMS message
+  SIM900.print("AT+CMGF=1\r");                              // AT command to send SMS message
   delay(100);
   SIM900.print("AT + CMGS = \"");
   SIM900.print(number);
   Serial.println(number);
   SIM900.println("\"");                                     // recipient's mobile number, in international format
   delay(100);
-  SIM900.println(message);        // message to send
+  SIM900.println(message);                                  // message to send
   Serial.println(message);
   delay(100);
-  SIM900.println((char)26);                       // End AT command with a ^Z, ASCII code 26
+  SIM900.println((char)26);                                 // End AT command with a ^Z, ASCII code 26
   delay(100);
   SIM900.println();
-  delay(30000);                                     // give module time to send SMS
+  delay(30000);                                             // give module time to send SMS
   return true;
 }
 
-
-
-
+// main loop
 void loop()
 {
 
