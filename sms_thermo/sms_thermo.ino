@@ -24,13 +24,9 @@ int last_call_hour;
 int last_message_hour;
 
 int monPeriod1Len = 600;                              // 10 minutes
-float dataPeriod1[4][600];
-
 int monPeriod2Len = 36000;                             // 60 minutes
-float dataPeriod2[4][60];
-
 int monPeriod3Len = 21600;                            // 12 hours 
-float dataPeriod3[4][36];
+
 
 long count_t1,        count_t2,       count_t3;
 long startOfPeriod1,  startOfPeriod2, startOfPeriod3;
@@ -330,11 +326,6 @@ void updateStats(boolean debug)
     count_t1 = 1;
   }
 
-    tt1m[i] = tt1m[i] + sensors.getTempC(thermalSensor[i]);
-    tt1m_avg[i] = round(tt1m[i] / count_t1);
-
-
-
   if (now() - startOfPeriod2 <= monPeriod2Len)
   {
     count_t2++;
@@ -347,9 +338,6 @@ void updateStats(boolean debug)
       tt2m[i] = 0;
     }
   }
-
-    tt2m[i] = tt2m[i] + sensors.getTempC(thermalSensor[i]);
-    tt2m_avg[i] = round(tt2m[i] / count_t2);
 
 
   if (now() - startOfPeriod3 <= monPeriod3Len)
@@ -364,14 +352,18 @@ void updateStats(boolean debug)
       tt3m[i] = 0;
     }
   }
+  
   for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++)
   {
 
+    tt1m[i] = tt1m[i] + sensors.getTempC(thermalSensor[i]);
+    tt1m_avg[i] = round(tt1m[i] / count_t1);
+
+    tt2m[i] = tt2m[i] + sensors.getTempC(thermalSensor[i]);
+    tt2m_avg[i] = round(tt2m[i] / count_t2);
+
     tt3m[i] = tt3m[i] + sensors.getTempC(thermalSensor[i]);
     tt3m_avg[i] = round(tt3m[i] / count_t3);
-
-
-
 
     if (debug) {
       Serial.print("TEMP"); Serial.print(i); Serial.print(":");
