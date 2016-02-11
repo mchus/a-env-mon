@@ -63,6 +63,7 @@ void setup()
   {
     startOfPeriod[i] = now ();
     measuresPerPeriod[i] = monPeriodLen[i] / (cycleDelay / 1000);
+    tempAvgPrev[0][i] = sensors.getTempC(thermalSensor[i]);
   }
 
 
@@ -449,6 +450,7 @@ boolean checkAlarm(int deviceid)
 int makeForecast(int sensor, bool debug)
 {
   float forecastSeconds ;
+  float forecastMinutes ;
   float delta_temp;
   float cur_temp = sensors.getTempC(thermalSensor[sensor]);
 
@@ -456,28 +458,29 @@ int makeForecast(int sensor, bool debug)
 
   if (tempTrend[0][sensor] < 0 )
   { //recovery time calculation
-    delta_temp = tempAvgCur[0][sensor] - TargetTemp[sensor];
+    delta_temp = cur_temp - TargetTemp[sensor];
     //Serial.print("[mF] Trend < 0. delta_temp:"); Serial.println(delta_temp);
 
   }
 
   if (tempTrend[0][sensor] > 0 )
-  { //Destroy time calculation
-    delta_temp = DestroyAlarmTemp[sensor] - tempAvgCur[0][sensor];
+  { 
+     delta_temp = DestroyAlarmTemp[sensor] - cur_temp;
     // Serial.print("[mF] Trend > 0. delta_temp:"); Serial.println(delta_temp);
   }
 
   forecastSeconds = delta_temp / (tempTrend[0][sensor] / monPeriodLen[0]);
+  forecastMinutes = forecastSeconds / 60;
   //Serial.print(delta_temp); Serial.print("/"); Serial.print(tt1mTrend[deviceid]); Serial.print("="); Serial.println(forecastSeconds);
   if (debug)
   {
-    Serial.print("[DBG] "); Serial.print(int(round(forecastSeconds))); Serial.print("(sec) till ");
-    if (tempTrend[0][sensor] > 0 )
+    Serial.print("[DBG] "); Serial.print(timeToHuman(forecastSeconds)); Serial.print(" till ");
+    if (tempTrend[0][sensor] < 0 )
     {
       Serial.println(TargetTemp[sensor]);
     }
     else {
-    if (tempTrend[0][sensor] < 0 )
+    if (tempTrend[0][sensor] > 0 )
     {
       Serial.println(DestroyAlarmTemp[sensor]);
     }
@@ -491,6 +494,38 @@ int makeForecast(int sensor, bool debug)
 
 }
 
+String timeToHuman (unsigned long inttime)
+{
+
+   unsigned long hours, mins, secs;
+   String timeString;
+
+
+   // Now, inttime is the remainder after subtracting the number of seconds
+   // in the number of days
+   hours    = inttime / 3600;
+   inttime  = inttime % 3600;
+
+   // Now, inttime is the remainder after subtracting the number of seconds
+   // in the number of days and hours
+   mins     = inttime / 60;
+   inttime  = inttime % 60;
+
+   // Now inttime is the number of seconds left after subtracting the number
+   // in the number of days, hours and minutes. In other words, it is the
+   // number of seconds.
+   secs = inttime;
+
+   // Don't bother to print days
+
+   timeString =  String(hours);
+   timeString = timeString + String(":");
+   timeString = timeString + String(mins);
+   timeString = timeString + String("."); 
+   timeString = timeString + String(secs);      
+   return timeString;
+  
+}
 
 
 // proceed a call just for make a loud sound in the middle of the "do not distrub" mode on smartphone
