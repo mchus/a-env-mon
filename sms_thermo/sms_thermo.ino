@@ -13,7 +13,7 @@ SoftwareSerial SIM900 (10, 11);                   //SIM900 is connected to 10 & 
 
 String phone_number[]   = {"+79000000000"};       // Phone numbers for SMS notifications
 int HighAlarmTemp[]     = {26, 26, 26, 26};       // Highest temperature when user is notificated
-int DestroyAlarmTemp[]  = {30, 30, 30, 30};       // Temperature used to make forecast
+int DestroyAlarmTemp[]  = {40, 40, 40, 40};       // Temperature used to make forecast
 int TargetTemp[]        = {24, 24, 24, 24};       // Temperature used to make forecast
 int LowAlarmTemp[]      = { -28, -28, -28, -28};  // Lowest thmperature when user is notificated
 int cycleDelay          = 3000;
@@ -25,14 +25,14 @@ String last_alarm_time;
 int last_call_hour;
 int last_message_hour;
 
-int monPeriodLen[3] = {600, 3600, 21600};                              // 10 minutes // 60 minutes // 12 hours
+int monPeriodLen[3] = {60, 3600, 21600};                              // 10 minutes // 60 minutes // 12 hours
 
 
 float gsm_signal;
 float tempSumm[3][4];
 float tempTrend[3][4];
-int   tempAvgCur[3][4];
-int   tempAvgPrev[3][4];
+float tempAvgCur[3][4];
+float tempAvgPrev[3][4];
 int   measuresCount[3];
 int   measuresPerPeriod[3];
 long  startOfPeriod[3];
@@ -52,20 +52,16 @@ DeviceAddress thermalSensor[1];                   //Set number of Thermal Sensor
 
 void setup()
 {
+  
+  //setTime(17, 10, 30, 11, 2, 2016);   //set the system time to 23h31m30s on 13Feb2009
+  //RTC.set(now());                     //set the RTC from the system time  
+  
+  
   Serial.begin(9600);                             //Serial debug console initialize at 9k
   Wire.begin();
 
   SIM900.begin(57600);                            //SIM900 console initialize at 56k
   sensors.begin();                                //sensors initialize;
-
-  // initial value setting
-  for (int i; i < 3; i++)
-  {
-    startOfPeriod[i] = now ();
-    measuresPerPeriod[i] = monPeriodLen[i] / (cycleDelay / 1000);
-    tempAvgPrev[0][i] = sensors.getTempC(thermalSensor[i]);
-  }
-
 
   call_done = false;
   // mode select
@@ -150,6 +146,14 @@ void setup()
       tempSumm[period][sensor] = sensors.getTempC(thermalSensor[sensor]);
     }
   }
+  // initial value setting
+  for (int i; i < 3; i++)
+  {
+    startOfPeriod[i] = now ();
+    measuresPerPeriod[i] = monPeriodLen[i] / (cycleDelay / 1000);
+    tempAvgPrev[0][i] = sensors.getTempC(thermalSensor[i]);
+  }
+
 }
 // get sim900 module status
 boolean getSIM900status(boolean debug)
@@ -313,30 +317,35 @@ void updateStats(boolean debug)
 
   for (int period = 0; period < 3; period++)
   {
+    measuresCount[period]++;
     for (int sensor = 0; sensor < sizeof(thermalSensor) / sizeof(DeviceAddress); sensor++)
     {
       if (now() - startOfPeriod[period] <= monPeriodLen[period])
       {
-        measuresCount[period]++;
+        
         tempSumm[period][sensor] = tempSumm[period][sensor] + sensors.getTempC(thermalSensor[sensor]); // Calcluating summ of temperature vaules for average calculation
+        tempAvgCur[period][sensor] = tempSumm[period][sensor] / measuresCount[period]; // Calculating average value for period;
+      
       }
       else
       {
         startOfPeriod[period] = now();
-        tempAvgPrev[period][sensor] = tempAvgCur[period][sensor];
+ 
+        tempTrend[period][sensor] = (tempAvgCur[period][sensor] - tempAvgPrev[period][sensor]) / monPeriodLen[period];  //calculating trend per second
 
-        tempAvgCur[period][sensor] = round(tempSumm[period][sensor] / measuresCount[period]); // Calculating average value for period 1;
-        tempTrend[period][sensor] = (tempAvgCur[period][sensor] - tempAvgPrev[period][sensor]) / measuresCount[period];
 
-        tempSumm[period][sensor] = 0;
-        measuresCount[period] = 0;
         if (debug)
         {
+          Serial.print("[DBG] temp current: "); Serial.println(tempAvgCur[period][sensor]); 
+          Serial.print("[DBG] temp previous: "); Serial.println(tempAvgPrev[period][sensor]);          
           Serial.print("[DBG] TREND "); Serial.print(sensor); Serial.print(":"); Serial.println(tempTrend[period][sensor]);
           makeForecast(sensor, true);
         }
+        tempAvgPrev[period][sensor] = tempAvgCur[period][sensor];
+        tempSumm[period][sensor] = 1;
+        measuresCount[period] = 1;
       }
-      measuresCount[period] = 1;
+
 
 
     }
@@ -450,7 +459,6 @@ boolean checkAlarm(int deviceid)
 int makeForecast(int sensor, bool debug)
 {
   float forecastSeconds ;
-  float forecastMinutes ;
   float delta_temp;
   float cur_temp = sensors.getTempC(thermalSensor[sensor]);
 
@@ -469,11 +477,11 @@ int makeForecast(int sensor, bool debug)
     // Serial.print("[mF] Trend > 0. delta_temp:"); Serial.println(delta_temp);
   }
 
-  forecastSeconds = delta_temp / (tempTrend[0][sensor] / monPeriodLen[0]);
-  forecastMinutes = forecastSeconds / 60;
+  forecastSeconds = delta_temp / tempTrend[0][sensor];
   //Serial.print(delta_temp); Serial.print("/"); Serial.print(tt1mTrend[deviceid]); Serial.print("="); Serial.println(forecastSeconds);
   if (debug)
   {
+    Serial.print("[DBG] trend:"); Serial.println(tempTrend[0][sensor]);
     Serial.print("[DBG] "); Serial.print(timeToHuman(forecastSeconds)); Serial.print(" till ");
     if (tempTrend[0][sensor] < 0 )
     {
@@ -633,7 +641,7 @@ void loop()
   for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++)
   {
     Serial.println(getData(thermalSensor[i]));
-    Serial.print("TREND "); Serial.print(i); Serial.print(":"); Serial.println(tempTrend[0][i]);
+    
     makeForecast(i, true);
   }
 
