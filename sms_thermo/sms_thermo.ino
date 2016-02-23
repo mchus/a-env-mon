@@ -6,13 +6,18 @@
 #include <SoftwareSerial.h>
 #include <math.h>
 
-SoftwareSerial SIM900 (10, 11); //SIM900 is connected to 10 & 11 PINs RX, TX
-#define ONE_WIRE_BUS 13         //Dallas OneWire sensors is connected to 13 PIN
+// TODO: Запилить журнал ошибок, учитывать время которое показатели были ниже нормы. Ежедневный отчет по ошибкам, или еженедельный. СМС меню.
 
-String phone_number[] = {"+79000000000"}; // Phone number for SMS notification
-int HighAlarmTemp[] = {28, 28, 28, 28};     // Highest temperature when user is notificated
-int DestroyAlarmTemp[] = {60, 60, 60, 60};  // Temperature used to make forecast
-int LowAlarmTemp[] = { -28, -28, -28, -28}; // Lowest thmperature when user is notificated
+SoftwareSerial SIM900 (10, 11);                   //SIM900 is connected to 10 & 11 PINs RX, TX
+#define ONE_WIRE_BUS 13                           //Dallas OneWire sensors is connected to 13 PIN
+
+String phone_number[]   = {"+79000000000"};       // Phone numbers for SMS notifications
+int HighAlarmTemp[]     = {26, 26, 26, 26};       // Highest temperature when user is notificated
+int DestroyAlarmTemp[]  = {40, 40, 40, 40};       // Temperature used to make forecast
+int TargetTemp[]        = {24, 24, 24, 24};       // Temperature used to make forecast
+int LowAlarmTemp[]      = { -28, -28, -28, -28};  // Lowest thmperature when user is notificated
+int cycleDelay          = 3000;
+// Set total connected sensors
 
 String textForSMS;
 String last_alarm_time;
@@ -20,18 +25,18 @@ String last_alarm_time;
 int last_call_hour;
 int last_message_hour;
 
-int monPeriod1 = 300; // 5 minutes
-int monPeriod2 = 600; // 10 minutes
-int monPeriod3 = 1800;// 60 minutes
+int monPeriodLen[3] = {60, 3600, 21600};                              // 10 minutes // 60 minutes // 12 hours
 
 
-long count_t1, count_t2, count_t3;
-long startOfPeriod1, startOfPeriod2, startOfPeriod3;
+float gsm_signal;
+float tempSumm[3][4];
+float tempTrend[3][4];
+float tempAvgCur[3][4];
+float tempAvgPrev[3][4];
+int   measuresCount[3];
+int   measuresPerPeriod[3];
+long  startOfPeriod[3];
 
-float tt1m[4], tt2m[4], tt3m[4];
-float tt1mLast[4], tt2mLast[4], tt3mLast[4];
-float tt1mTrend[4], tt2mTrend[4], tt3mTrend[4];
-int tt1m_avg[4], tt2m_avg[4], tt3m_avg[4];
 
 boolean call_done;
 boolean message_done;
@@ -42,81 +47,150 @@ tmElements_t tm;
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
-DeviceAddress thermalSensor[2];
+DeviceAddress thermalSensor[1];                   //Set number of Thermal Sensors Connected
 
 
 void setup()
 {
-  Serial.begin(9600);   //Serial debug console initialize at 9k
+  
+  //setTime(17, 10, 30, 11, 2, 2016);   //set the system time to 23h31m30s on 13Feb2009
+  //RTC.set(now());                     //set the RTC from the system time  
+  
+  
+  Serial.begin(9600);                             //Serial debug console initialize at 9k
   Wire.begin();
 
-  SIM900.begin(57600);  //SIM900 console initialize at 56k
-  sensors.begin();
-
-  startOfPeriod1 = now();
-  startOfPeriod2 = now();
-  startOfPeriod3 = now();
+  SIM900.begin(57600);                            //SIM900 console initialize at 56k
+  sensors.begin();                                //sensors initialize;
 
   call_done = false;
-  armed = false;
+  // mode select
+  armed = false;                                  //GSM activity
+
+
+  SIM900.println("AT");                           //Sending "AT" to modem for auto baud rate sensing;
+
+  Serial.print("[boot] SIM900 ----- ");
+  if (getSIM900status(false))
+  {
+    Serial.println("connected");
+  }
+  else
+  {
+    Serial.println("ERROR!");
+  }
 
   // SIM900 serial console initialize and hanging off call (just for shure);
   delay(1000);
-  SIM900.println("AT"); //Sending "AT" to modem for auto baud rate sensing;
+
+  Serial.print("[boot] SIM card ----- ");
+  if (getSimCardStatus(false))
+  {
+    Serial.println("OK");
+  }
+  else
+  {
+    Serial.println("ERROR!");
+  }
+
+  Serial.print("[boot] Registering in Network  ----- ");
+  for (int i = 0; i <= 10; i++)
+  {
+    if (getNetworkStatus(false))
+    {
+      i = 100;
+      Serial.println(toProgressBar(2, 30, gsm_signal));
+    }
+    Serial.print("-");
+    delay(1000);
+  }
+  if (getNetworkStatus(false))
+  {
+    Serial.print("ERROR!");
+  }
+  Serial.println();
   delay(1000);
-  SIM900.println("ATH");
+  SIM900.println("ATH");        // hanging off call (just for shure);
   delay(1000);
   SIM900.println("AT+CMGD=1,4"); // delete all SMS
   delay(1000);
 
- if (getSIM900status(true))
-  {
-    Serial.println("Waiting for network registration");
-    while (getNetworkStatus(true))
-    {
-      Serial.print("."); 
-      delay(100); 
-    }
-  }
-  else
-  {
-    Serial.println("SIM card error!");
-  }
-
+  Serial.print("[boot] Syncing with RTC clock  ----- ");
   setSyncProvider(RTC.get);   // the function to get the time from the RTC
   if (timeStatus() != timeSet)
-    Serial.println("Unable to sync with the RTC");
+    Serial.println("ERROR!");
   else
-    Serial.println("RTC has set the system time");
-
+    Serial.println("OK");
 
   // locate termal sensors on the bus
-  Serial.print("Found ");
+
+  Serial.print("[boot] Found ");
   Serial.print(sensors.getDeviceCount(), DEC);
   Serial.println(" devices.");
 
   // search for devices on the bus and assign based on an index.
-  for (int i = 0; i < sensors.getDeviceCount(); i++)
+  for (int sensor = 0; sensor < sensors.getDeviceCount(); sensor++)
   {
-    if (!sensors.getAddress(thermalSensor[i], i))
+    if (!sensors.getAddress(thermalSensor[sensor], sensor))
     {
-      Serial.print("Unable to find address for Device:"); Serial.print(i);
+      Serial.print("[boot] Unable to find address for Device:"); Serial.print(sensor);
     }
 
-    Serial.print("Sensor #"); Serial.print(i);
-    Serial.print(": "); Serial.println(getAddress(thermalSensor[i]));
-    sensors.setHighAlarmTemp (thermalSensor[i], HighAlarmTemp[i]);          // alarm when temp is higher than HighAlarmTemp[i]
-    sensors.setLowAlarmTemp(thermalSensor[i], LowAlarmTemp[i]);             // alarm when temp is lower than LowAlarmTemp[i]
-    Serial.print("Alarms:");  Serial.println(getAlarms(thermalSensor[i]));
-    tt1m[i] = sensors.getTempC(thermalSensor[i]);
+    Serial.print("[boot] Sensor #"); Serial.print(sensor);
+    Serial.print(": "); Serial.println(getAddress(thermalSensor[sensor]));
+    sensors.setHighAlarmTemp (thermalSensor[sensor], HighAlarmTemp[sensor]);          // alarm when temp is higher than HighAlarmTemp[i]
+    sensors.setLowAlarmTemp(thermalSensor[sensor], LowAlarmTemp[sensor]);             // alarm when temp is lower than LowAlarmTemp[i]
+    Serial.print("[boot] Alarms:");  Serial.println(getAlarms(thermalSensor[sensor]));
+    for (int period; period < 3; period++)
+    {
+      tempSumm[period][sensor] = sensors.getTempC(thermalSensor[sensor]);
+    }
   }
+  // initial value setting
+  for (int i; i < 3; i++)
+  {
+    startOfPeriod[i] = now ();
+    measuresPerPeriod[i] = monPeriodLen[i] / (cycleDelay / 1000);
+    tempAvgPrev[0][i] = sensors.getTempC(thermalSensor[i]);
+  }
+
 }
 // get sim900 module status
 boolean getSIM900status(boolean debug)
 {
   boolean sim900status = false;
   String readString;
+  SIM900.println("AT"); // check SIM900 status
+  while (SIM900.available() > 0)
+  { char inchar = SIM900.read();
+    readString += inchar;
+    delay(10);
+  }
+  if (debug) {
+    Serial.print("[DBG] getSIM900status:");
+    Serial.print(readString);
+  }
+  for (int i = 0; i < 200; i++)
+  {
+    if (readString.substring(i, i + 2) == "OK")
+    {
+      sim900status = true;
+      return sim900status;
+      break;
+    }
+    if (debug) {
+      Serial.print("FOUND:");
+      Serial.println(readString.substring(i, i + 5));
+    }
+  }
+  return sim900status;
+}
 
+// get SIM card in SIM900 module status
+boolean getSimCardStatus(boolean debug)
+{
+  boolean sim900status = false;
+  String readString;
   SIM900.println("AT+CPIN?"); // check SIM card status
   while (SIM900.available() > 0)
   { char inchar = SIM900.read();
@@ -124,13 +198,19 @@ boolean getSIM900status(boolean debug)
     delay(10);
   }
 
+  if (debug) {
+    Serial.print("[DBG] getSimCardStatus:");
+    Serial.print(readString);
+  }
+
   for (int i = 0; i < 200; i++)
   {
     if (readString.substring(i, i + 5) == "READY")
     {
       sim900status = true;
+
       if (debug) {
-        Serial.print("Sim card status:");
+        Serial.print("FOUND:");
         Serial.println(readString.substring(i, i + 5));
       }
       break;
@@ -139,6 +219,7 @@ boolean getSIM900status(boolean debug)
   return sim900status;
 }
 
+// get and update network db rate from SIM900 module
 boolean getNetworkStatus(boolean debug)
 {
   boolean sim900status = false;
@@ -150,19 +231,50 @@ boolean getNetworkStatus(boolean debug)
     readString += inchar;
     delay(10);
   }
-  //Serial.println(readString);
+  if (debug) {
+    Serial.print("[DBG] getNetworkStatus:");
+    Serial.print(readString);
+  }
   for (int i = 0; i < 200; i++)
   {
-    if (readString.substring(i, i + 5) == "ERROR")
+    if (readString.substring(i, i + 5) == "+CSQ:")
     {
-      sim900status = false;
-      Serial.print("Network status:"); Serial.println(readString.substring(i, i + 5));
+      sim900status = true;
+      if (debug) {
+        Serial.print("FOUND:"); Serial.println(readString.substring(i, i + 10));
+      }
+      gsm_signal = readString.substring(i + 5, i + 10).toFloat();
       break;
     }
   }
   return sim900status;
 }
 
+//return fancy progress bar in string
+String toProgressBar(int minV, int maxV, int currV)
+{
+  String result;
+  int len = 10;
+  int absV = maxV - minV;
+
+  float mPos;
+  mPos = ((float)currV - (float)minV) / (float)absV;
+  int nPos = round(len * mPos);
+  result = String("[");
+  for (int i = 1; i <= len; i++)
+  {
+    if (i <= nPos)
+    {
+      result = String(result) + String("#");
+    }
+    else
+    {
+      result = String(result) + String("-");
+    }
+  }
+  result = String(result) + String("]");
+  return String(result);
+}
 
 // get a termal-sensors device address
 String getAddress(DeviceAddress deviceAddress)
@@ -203,74 +315,57 @@ String getShortTimeString ()
 void updateStats(boolean debug)
 {
 
-  if (now() - startOfPeriod1 <= monPeriod1)
+  for (int period = 0; period < 3; period++)
   {
-    count_t1++;
-  }
-  else
-  { startOfPeriod1 = now();
-
-    for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++)
+    measuresCount[period]++;
+    for (int sensor = 0; sensor < sizeof(thermalSensor) / sizeof(DeviceAddress); sensor++)
     {
-      tt1mTrend[i] = (tt1m[i] - tt1mLast[i]) / count_t1;
-      tt1mLast[i] = tt1m[i];
-      tt1m[i] = 0;
-      //          Serial.print("TREND "); Serial.print(i); Serial.print(":"); Serial.println(tt1mTrend[i]);
-      //          Serial.print("Time to death: ");Serial.println( makeForecast(i) );
-    }
-    count_t1 = 1;
-  }
-
-  if (now() - startOfPeriod2 <= monPeriod2)
-  {
-    count_t2++;
-  }
-  else
-  {
-    startOfPeriod2 = now();
-    count_t2 = 1;
-    for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++) {
-      tt2m[i] = 0;
-    }
-  }
+      if (now() - startOfPeriod[period] <= monPeriodLen[period])
+      {
+        
+        tempSumm[period][sensor] = tempSumm[period][sensor] + sensors.getTempC(thermalSensor[sensor]); // Calcluating summ of temperature vaules for average calculation
+        tempAvgCur[period][sensor] = tempSumm[period][sensor] / measuresCount[period]; // Calculating average value for period;
+      
+      }
+      else
+      {
+        startOfPeriod[period] = now();
+ 
+        tempTrend[period][sensor] = (tempAvgCur[period][sensor] - tempAvgPrev[period][sensor]) / monPeriodLen[period];  //calculating trend per second
 
 
-  if (now() - startOfPeriod3 <= monPeriod3)
-  {
-    count_t3++;
-  }
-  else
-  {
-    startOfPeriod3 = now();
-    count_t3 = 1;
-    for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++) {
-      tt3m[i] = 0;
+        if (debug)
+        {
+          Serial.print("[DBG] temp current: "); Serial.println(tempAvgCur[period][sensor]); 
+          Serial.print("[DBG] temp previous: "); Serial.println(tempAvgPrev[period][sensor]);          
+          Serial.print("[DBG] TREND "); Serial.print(sensor); Serial.print(":"); Serial.println(tempTrend[period][sensor]);
+          makeForecast(sensor, true);
+        }
+        tempAvgPrev[period][sensor] = tempAvgCur[period][sensor];
+        tempSumm[period][sensor] = 1;
+        measuresCount[period] = 1;
+      }
+
+
+
     }
   }
-  for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++)
-  {
+  if (debug) {
 
-    tt1m[i] = tt1m[i] + sensors.getTempC(thermalSensor[i]);
-    tt1m_avg[i] = round(tt1m[i] / count_t1);
-
-    tt2m[i] = tt2m[i] + sensors.getTempC(thermalSensor[i]);
-    tt2m_avg[i] = round(tt2m[i] / count_t2);
-
-    tt3m[i] = tt3m[i] + sensors.getTempC(thermalSensor[i]);
-    tt3m_avg[i] = round(tt3m[i] / count_t3);
-
-    if (debug) {
-      Serial.print("TEMP"); Serial.print(i); Serial.print(":");
-      Serial.print(sensors.getTempC(thermalSensor[i]));
-      Serial.print("/"); Serial.print(tt1m_avg[i]);
-      Serial.print("/"); Serial.print(tt2m_avg[i]);
-      Serial.print("/"); Serial.print(tt3m_avg[i]);
+    for (int sensor = 0; sensor < sizeof(thermalSensor) / sizeof(DeviceAddress); sensor++)
+    {
+      Serial.print("TEMP"); Serial.print(sensor); Serial.print(":");
+      Serial.print(sensors.getTempC(thermalSensor[sensor]));
+      for (int period = 0; period < 3; period++)
+      {
+        Serial.print("/"); Serial.print(tempAvgCur[period][sensor]);
+      }
       Serial.println();
     }
   }
 }
 
-// get information about a device
+// get information about a sensors
 String getData(DeviceAddress deviceAddress)
 {
   String datastring;
@@ -282,9 +377,9 @@ String getData(DeviceAddress deviceAddress)
 }
 
 // compose alarm message for SMS sending
-String makeMessage(int deviceid)
+String makeMessage(int sensor)
 {
-  int timeToDeath =  makeForecast(deviceid);
+  int timeToDeath =  makeForecast(sensor, false);
   int minToDeath = timeToDeath / 60;
   int secToDeath = timeToDeath - minToDeath * 60;
 
@@ -292,10 +387,12 @@ String makeMessage(int deviceid)
   datastring = getShortTimeString ();
   datastring = datastring + String(" ");
   datastring = datastring + String("Overheat");
-  datastring = datastring + String("(") + getData(thermalSensor[deviceid]) + String(")");
-  datastring = datastring + String("[") + String(tt1m[deviceid]) + String("/");
-  datastring = datastring + String(tt2m[deviceid]) + String("/");
-  datastring = datastring + String(tt3m[deviceid]) + String("] ");
+  datastring = datastring + String("(") + getData(thermalSensor[sensor]) + String(")");
+  datastring = datastring + String("[");
+  for (int period; period < 3; period++)
+  {
+    datastring = datastring + String(tempAvgCur[period][sensor]) + String("/");
+  }
   datastring = datastring + String("Death after: ") + minToDeath + String(":") + secToDeath;
   Serial.println(datastring);
   return datastring;
@@ -359,30 +456,85 @@ boolean checkAlarm(int deviceid)
 
 
 // forecast in seconds elasped time to DestroyAlarmTemp[]
-int makeForecast(int deviceid)
+int makeForecast(int sensor, bool debug)
 {
   float forecastSeconds ;
   float delta_temp;
-  float cur_temp = sensors.getTempC(thermalSensor[deviceid]);
+  float cur_temp = sensors.getTempC(thermalSensor[sensor]);
+
   // Serial.print("[mF] Cur_temp:"); Serial.println(cur_temp);
 
-  if (tt1mTrend[deviceid] < 0 )
+  if (tempTrend[0][sensor] < 0 )
   { //recovery time calculation
-    delta_temp = cur_temp - HighAlarmTemp[deviceid];
+    delta_temp = cur_temp - TargetTemp[sensor];
     //Serial.print("[mF] Trend < 0. delta_temp:"); Serial.println(delta_temp);
 
   }
 
-  if (tt1mTrend[deviceid] > 0 )
-  { //Destroy time calculation
-    delta_temp = DestroyAlarmTemp[deviceid] - cur_temp;
+  if (tempTrend[0][sensor] > 0 )
+  { 
+     delta_temp = DestroyAlarmTemp[sensor] - cur_temp;
     // Serial.print("[mF] Trend > 0. delta_temp:"); Serial.println(delta_temp);
   }
 
-  forecastSeconds = delta_temp / tt1mTrend[deviceid];
+  forecastSeconds = delta_temp / tempTrend[0][sensor];
   //Serial.print(delta_temp); Serial.print("/"); Serial.print(tt1mTrend[deviceid]); Serial.print("="); Serial.println(forecastSeconds);
+  if (debug)
+  {
+    Serial.print("[DBG] trend:"); Serial.println(tempTrend[0][sensor]);
+    Serial.print("[DBG] "); Serial.print(timeToHuman(forecastSeconds)); Serial.print(" till ");
+    if (tempTrend[0][sensor] < 0 )
+    {
+      Serial.println(TargetTemp[sensor]);
+    }
+    else {
+    if (tempTrend[0][sensor] > 0 )
+    {
+      Serial.println(DestroyAlarmTemp[sensor]);
+    }
+    else
+    {
+      Serial.println("NAN");
+    }}
+  }
   return int(round(forecastSeconds));
+
+
 }
+
+String timeToHuman (unsigned long inttime)
+{
+
+   unsigned long hours, mins, secs;
+   String timeString;
+
+
+   // Now, inttime is the remainder after subtracting the number of seconds
+   // in the number of days
+   hours    = inttime / 3600;
+   inttime  = inttime % 3600;
+
+   // Now, inttime is the remainder after subtracting the number of seconds
+   // in the number of days and hours
+   mins     = inttime / 60;
+   inttime  = inttime % 60;
+
+   // Now inttime is the number of seconds left after subtracting the number
+   // in the number of days, hours and minutes. In other words, it is the
+   // number of seconds.
+   secs = inttime;
+
+   // Don't bother to print days
+
+   timeString =  String(hours);
+   timeString = timeString + String(":");
+   timeString = timeString + String(mins);
+   timeString = timeString + String("."); 
+   timeString = timeString + String(secs);      
+   return timeString;
+  
+}
+
 
 // proceed a call just for make a loud sound in the middle of the "do not distrub" mode on smartphone
 boolean makecall(String number)
@@ -419,6 +571,66 @@ boolean sendSMS(String number, String message)
   return true;
 }
 
+
+String readSMS(int smsID, bool debug)
+{
+  bool isMsgExists;
+  String readString;
+  String resultString;
+
+  SIM900.print("AT+CMGR=2AT+CMGR="); SIM900.println(smsID);
+  while (SIM900.available() > 0)
+  { char inchar = SIM900.read();
+    readString += inchar;
+    delay(10);
+  }
+  if (debug) {
+    Serial.print("[DBG] readSMSreadSMS AT+CMGR=2AT+CMGR=AT+CMGR=2AT+CMGR= return:");
+    Serial.print(readString);
+    readString = "";
+  }
+
+  for (int i = 0; i < 200; i++)
+  {
+    for (int j = 0; j < sizeof(phone_number); j++)
+    {
+      if (readString.substring(i, i + 12) == phone_number[j])
+      {
+        isMsgExists = true;
+        if (debug) {
+          Serial.print("FOUND:");
+          Serial.println(readString.substring(i, i + 12));
+        }
+      }
+      if (isMsgExists)
+      {
+        for (int k = i; k < 200 - i; k++)
+        {
+          if (readString.substring(k, k + 4) == "CMD:")
+          {
+            resultString = String(readString.substring(k + 4));
+            if (debug) {
+              Serial.print("COMMAND:");
+              Serial.println(readString.substring(k + 4));
+            }
+          }
+        }
+      }
+    }
+  }
+  return readString;
+}
+
+void execRemoteCommand ()
+{
+  String cmdLine;
+  for (int i = 1; i <= 15; i++)
+  {
+    cmdLine = String(readSMS(i, true));
+    Serial.println(cmdLine);
+  }
+}
+
 // main loop
 void loop()
 {
@@ -428,10 +640,13 @@ void loop()
 
   for (int i = 0; i < sizeof(thermalSensor) / sizeof(DeviceAddress); i++)
   {
-    //   checkAlarm(i);
+    Serial.println(getData(thermalSensor[i]));
+    
+    makeForecast(i, true);
   }
- 
-  //printAlarms(t0); // Вывод пороговых значений на экран
-  delay(3000);  // задержка проверки
 
+  //execRemoteCommand();
+  //printAlarms(t0); // Вывод пороговых значений на экран
+  delay(cycleDelay);  // задержка проверки
+  //getNetworkStatus(false); Serial.println(toProgressBar(2, 30, gsm_signal)); // Network signal quality print
 }
