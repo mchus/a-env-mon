@@ -7,6 +7,7 @@
 #include <math.h>
 
 
+
 SoftwareSerial SIM900 (10, 11);                   //SIM900 is connected to 10 & 11 PINs RX, TX
 #define ONE_WIRE_BUS 12                           //Dallas OneWire sensors is connected to 13 PIN
 
